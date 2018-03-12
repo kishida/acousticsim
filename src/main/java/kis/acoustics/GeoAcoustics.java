@@ -1,7 +1,8 @@
 package kis.acoustics;
 
-import static java.lang.Math.sin;
 import static java.lang.Math.cos;
+import static java.lang.Math.sin;
+import static java.lang.Math.sqrt;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
@@ -9,6 +10,7 @@ import java.util.stream.Stream;
 import javax.swing.ImageIcon;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
+import lombok.AllArgsConstructor;
 import lombok.EqualsAndHashCode;
 import lombok.Value;
 
@@ -17,19 +19,63 @@ import lombok.Value;
  * @author naoki
  */
 public class GeoAcoustics {
-    @Value
-    static class Point3D{
-        double x, y, z;
-        
-        Point3D turny(double rad) {
+    
+    @AllArgsConstructor
+    static final class Vec {
+        static final Vec UNIT_X = new Vec(1, 0, 0);
+        static final Vec UNIT_Y = new Vec(0, 1, 0);
+        static final Vec ZERO = new Vec(0, 0, 0);
+
+        final double x, y, z;
+
+        Vec add(Vec b) {
+            return new Vec(x + b.x, y + b.y, z + b.z);
+        }
+
+        Vec sub(Vec b) {
+            return new Vec(x - b.x, y - b.y, z - b.z);
+        }
+
+        Vec mul(double b) {
+            return new Vec(x * b, y * b, z * b);
+        }
+
+        Vec vecmul(Vec b) {
+            return new Vec(x * b.x, y * b.y, z * b.z);
+        }
+
+        Vec normalize() {
+            double dist = distant();
+            if (dist == 0) {
+                return UNIT_X;
+            }
+            return new Vec(x / dist, y / dist, z / dist);
+        }
+
+        double distant() {
+            return sqrt(x * x + y * y + z * z);
+        }
+
+        double dot(Vec b) {
+            return x * b.x + y * b.y + z * b.z;
+        } // cross:
+
+        Vec mod(Vec b) {
+            return new Vec(y * b.z - z * b.y, z * b.x - x * b.z, x * b.y - y * b.x);
+        }
+        Vec turny(double rad) {
             double s = sin(rad);
             double c = cos(rad);
-            return new Point3D(x * c - z * s, y, x * s + z * c);
-        }
-        Point3D move(double dx, double dy, double dz) {
-            return new Point3D(x + dx, y + dy, z + dz);
+            return new Vec(x * c - z * s, y, x * s + z * c);
         }
     }
+
+    @Value
+    static final class Ray {
+        final Vec obj, dist;
+
+    }
+
     @Value
     static class Point2D{
         double x, y;
@@ -56,15 +102,15 @@ public class GeoAcoustics {
         }
     }
     
-    static Point3D[] points = {
-        new Point3D( 0, 0,  0), // 0
-        new Point3D(10, 0,  0), // 1
-        new Point3D(10, 7,  0), // 2
-        new Point3D( 0, 7,  0), // 3
-        new Point3D( 0, 0, 10), // 4
-        new Point3D(10, 0, 10), // 5
-        new Point3D(10, 7, 10), // 6
-        new Point3D( 0, 7, 10), // 7
+    static Vec[] points = {
+        new Vec( 0, 0,  0), // 0
+        new Vec(10, 0,  0), // 1
+        new Vec(10, 7,  0), // 2
+        new Vec( 0, 7,  0), // 3
+        new Vec( 0, 0, 10), // 4
+        new Vec(10, 0, 10), // 5
+        new Vec(10, 7, 10), // 6
+        new Vec( 0, 7, 10), // 7
     };
     
     static Surface[] surfaces = {
@@ -98,8 +144,9 @@ public class GeoAcoustics {
         
     }
     
-    static Point2D trans(Point3D p) {
-        Point3D t = p.move(-5, -12.5, 0).turny(1/4.);
+    static Vec offset = new Vec(-5, -12.5, 0);
+    static Point2D trans(Vec p) {
+        Vec t = p.add(offset).turny(1/4.);
         int pers = 70;
         int zoom = 30;
         return new Point2D(t.x * zoom * (pers - t.z) / pers + 200,
