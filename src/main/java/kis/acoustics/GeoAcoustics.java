@@ -77,17 +77,52 @@ public class GeoAcoustics {
     }
 
     @Value
+    static final class SoundRay {
+        Ray ray;
+        double intensity;
+    }
+    
+    @Value
     static class Point2D{
         double x, y;
     }
+    
+    enum Material {
+        //            125Hz 250Hz 500Hz 1KHz  2KHz  4KHz
+        CONCRETE     (0.01, 0.01, 0.02, 0.02, 0.03, 0.04),
+        WALL_CLOTH   (0.03, 0.03, 0.03, 0.04, 0.06, 0.08),
+        WOOD_FLOOR   (0.16, 0.14, 0.11, 0.08, 0.08, 0.07),
+        CARPET_PUNCH (0.03, 0.04, 0.06, 0.10, 0.20, 0.35),
+        CARPET_PILE  (0.09, 0.10, 0.20, 0.25, 0.30, 0.40),
+        CURTAIN_FLAT (0.05, 0.07, 0.13, 0.22, 0.32, 0.35),
+        CURTAIN_PLEAT(0.10, 0.25, 0.55, 0.65, 0.70, 0.70),
+        RELRECTOR    (0.20, 0.13, 0.10, 0.07, 0.06, 0.06)
+        ;
+        
+        double[] absorptions;
+
+        private Material(double... absorptions) {
+            this.absorptions = absorptions;
+        }
+    }
+    
+    @AllArgsConstructor
     static abstract class Surface{
+        Material material;
+
         abstract void draw(Graphics2D g, Point2D[] points);
     }
 
-    @Value
-    @EqualsAndHashCode(callSuper = true)
     static class Rectangle extends Surface {
         int ul, ur, br, bl;
+
+        public Rectangle(int ul, int ur, int br, int bl, Material material) {
+            super(material);
+            this.ul = ul;
+            this.ur = ur;
+            this.br = br;
+            this.bl = bl;
+        }
 
         @Override
         void draw(Graphics2D g, Point2D[] points) {
@@ -114,12 +149,12 @@ public class GeoAcoustics {
     };
     
     static Surface[] surfaces = {
-        new Rectangle(0, 1, 2, 3),
-        new Rectangle(1, 0, 4, 5),
-        new Rectangle(5, 4, 7, 6),
-        new Rectangle(6, 7, 3, 2),
-        new Rectangle(2, 1, 5, 6),
-        new Rectangle(0, 3, 7, 4)
+        new Rectangle(0, 1, 2, 3, Material.CONCRETE),
+        new Rectangle(1, 0, 4, 5, Material.WOOD_FLOOR),
+        new Rectangle(5, 4, 7, 6, Material.CONCRETE),
+        new Rectangle(6, 7, 3, 2, Material.CARPET_PILE),
+        new Rectangle(2, 1, 5, 6, Material.CONCRETE),
+        new Rectangle(0, 3, 7, 4, Material.CONCRETE)
     };
     
     
@@ -130,6 +165,9 @@ public class GeoAcoustics {
                 .map(GeoAcoustics::trans)
                 .toArray(Point2D[]::new);
 
+        Vec source = new Vec(3, 2, 3);
+        SoundRay ray = new SoundRay(new Ray(source, source.add(new Vec(1, 1, 1).normalize())), 1);
+        
         BufferedImage img = new BufferedImage(400, 350, BufferedImage.TYPE_INT_RGB);
         Graphics2D g = img.createGraphics();
         g.setColor(Color.WHITE);
