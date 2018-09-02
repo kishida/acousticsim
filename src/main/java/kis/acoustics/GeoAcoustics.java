@@ -6,12 +6,12 @@ import static java.lang.Math.sqrt;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
+import java.util.function.Function;
 import java.util.stream.Stream;
 import javax.swing.ImageIcon;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import lombok.AllArgsConstructor;
-import lombok.EqualsAndHashCode;
 import lombok.Value;
 
 /**
@@ -19,7 +19,12 @@ import lombok.Value;
  * @author naoki
  */
 public class GeoAcoustics {
-    
+
+    private static final double GAMMA = 2.2;
+    private static final double RECIP_GAMMA = 1 / GAMMA;
+    private static final double EPS = 1e-4;
+    private static final double INF = 1e20;
+
     @AllArgsConstructor
     static final class Vec {
         static final Vec UNIT_X = new Vec(1, 0, 0);
@@ -68,11 +73,99 @@ public class GeoAcoustics {
             double c = cos(rad);
             return new Vec(x * c - z * s, y, x * s + z * c);
         }
-    }
+    }    
 
     @Value
     static final class Ray {
         final Vec obj, dist;
+
+    }
+
+    @AllArgsConstructor
+    static abstract class Surface{
+        final Vec pos;
+        Material material;
+
+        abstract void draw(Graphics2D g, Function<Vec, Point2D> t);
+        abstract double intersect(Ray y, Surface[] robj);
+    }
+    
+    static final class Sphere extends Surface {
+
+        final double rad;       // radius
+
+        public Sphere(double rad, Vec p, Material mat) {
+            super(p, mat);
+            this.rad = rad;
+        }
+
+        @Override
+        double intersect(Ray r, Surface[] robj) { // returns distance, 0 if nohit
+            Vec op = pos.sub(r.obj); // Solve t^2*d.d + 2*t*(o-p).d + (o-p).(o-p)-R^2 = 0
+            double t,
+                    b = op.dot(r.dist),
+                    det = b * b - op.dot(op) + rad * rad;
+            if (det < 0) {
+                return 0;
+            }
+            det = sqrt(det);
+            robj[0] = this;
+            return (t = b - det) > EPS ? t : ((t = b + det) > EPS ? t : 0);
+        }
+
+        @Override
+        void draw(Graphics2D g, Function<Vec, Point2D> t) {
+            throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+        }
+        
+    }
+
+    static class Polygon extends Surface {
+        final Vec p1, p3;
+        final Vec normal;
+        final Vec e1, e2;
+
+        public Polygon(Vec p1, Vec p2, Vec p3, Material mat) {
+            super(p2, mat);
+            this.p1 = p1;
+            this.p3 = p3;
+            e1 = p1.sub(pos);
+            e2 = p3.sub(pos);
+            normal = e1.mod(e2).normalize();
+        }
+        private double det(Vec v1, Vec v2, Vec v3) {
+            return v1.x * v2.y * v3.z + v2.x * v3.y * v1.z + v3.x * v1.y * v2.z
+                    -v1.x * v3.y * v2.z - v2.x * v1.y * v3.z - v3.x * v2.y * v1.z;
+        }
+        @Override
+        double intersect(Ray y, Surface[] robj) {
+            Vec ray = y.dist.mul(-1);
+            double deno = det(e1, e2, ray);
+            if (deno <= 0) {
+                return 0;
+            }
+            
+            Vec d = y.obj.sub(pos);
+            double u = det(d, e2, ray) / deno;
+            if (u < 0 || u > 1) {
+                return 0;
+            }
+            double v = det(e1, d, ray) / deno;
+            if (v < 0 || u + v > 1) {
+                return 0;
+            }
+            double t = det(e1, e2, d) / deno;
+            if (t < 0) {
+                return 0;
+            }
+            robj[0] = this;
+            return t;
+        }
+
+        @Override
+        void draw(Graphics2D g, Function<Vec, Point2D> t) {
+            throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+        }
 
     }
 
@@ -106,18 +199,11 @@ public class GeoAcoustics {
         }
     }
     
-    @AllArgsConstructor
-    static abstract class Surface{
-        Material material;
-
-        abstract void draw(Graphics2D g, Point2D[] points);
-    }
-
     static class Rectangle extends Surface {
-        int ul, ur, br, bl;
+        Vec ul, ur, br, bl;
 
-        public Rectangle(int ul, int ur, int br, int bl, Material material) {
-            super(material);
+        public Rectangle(Vec ul, Vec ur, Vec br, Vec bl, Material material) {
+            super(ul, material);
             this.ul = ul;
             this.ur = ur;
             this.br = br;
@@ -125,15 +211,24 @@ public class GeoAcoustics {
         }
 
         @Override
-        void draw(Graphics2D g, Point2D[] points) {
-            g.drawLine((int)points[ul].x, (int)points[ul].y,
-                       (int)points[ur].x, (int)points[ur].y);
-            g.drawLine((int)points[ur].x, (int)points[ur].y,
-                       (int)points[br].x, (int)points[br].y);
-            g.drawLine((int)points[br].x, (int)points[br].y,
-                       (int)points[bl].x, (int)points[bl].y);
-            g.drawLine((int)points[bl].x, (int)points[bl].y,
-                       (int)points[ul].x, (int)points[ul].y);
+        void draw(Graphics2D g, Function<Vec, Point2D> t) {
+            var tul = t.apply(ul);
+            var tur = t.apply(ur);
+            var tbl = t.apply(bl);
+            var tbr = t.apply(br);
+            g.drawLine((int)tul.x, (int)tul.y,
+                       (int)tur.x, (int)tur.y);
+            g.drawLine((int)tur.x, (int)tur.y,
+                       (int)tbr.x, (int)tbr.y);
+            g.drawLine((int)tbr.x, (int)tbr.y,
+                       (int)tbl.x, (int)tbl.y);
+            g.drawLine((int)tbl.x, (int)tbl.y,
+                       (int)tul.x, (int)tul.y);
+        }
+
+        @Override
+        double intersect(Ray y, Surface[] robj) {
+            throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
         }
     }
     
@@ -149,12 +244,12 @@ public class GeoAcoustics {
     };
     
     static Surface[] surfaces = {
-        new Rectangle(0, 1, 2, 3, Material.CONCRETE),
-        new Rectangle(1, 0, 4, 5, Material.WOOD_FLOOR),
-        new Rectangle(5, 4, 7, 6, Material.CONCRETE),
-        new Rectangle(6, 7, 3, 2, Material.CARPET_PILE),
-        new Rectangle(2, 1, 5, 6, Material.CONCRETE),
-        new Rectangle(0, 3, 7, 4, Material.CONCRETE)
+        new Rectangle(points[0], points[1], points[2], points[3], Material.CONCRETE),
+        new Rectangle(points[1], points[0], points[4], points[5], Material.WOOD_FLOOR),
+        new Rectangle(points[5], points[4], points[7], points[6], Material.CONCRETE),
+        new Rectangle(points[6], points[7], points[3], points[2], Material.CARPET_PILE),
+        new Rectangle(points[2], points[1], points[5], points[6], Material.CONCRETE),
+        new Rectangle(points[0], points[3], points[7], points[4], Material.CONCRETE)
     };
     
     
@@ -171,7 +266,7 @@ public class GeoAcoustics {
         BufferedImage img = new BufferedImage(400, 350, BufferedImage.TYPE_INT_RGB);
         Graphics2D g = img.createGraphics();
         g.setColor(Color.WHITE);
-        Stream.of(surfaces).forEach(s -> s.draw(g, ps));
+        Stream.of(surfaces).forEach(s -> s.draw(g, GeoAcoustics::trans));
         
         JLabel label = new JLabel(new ImageIcon(img));
         frame.add(label);
@@ -187,7 +282,7 @@ public class GeoAcoustics {
         Vec t = p.add(offset).turny(1/4.);
         int pers = 70;
         int zoom = 30;
-        return new Point2D(t.x * zoom * (pers - t.z) / pers + 200,
-                -t.y * zoom *(pers - t.z) / pers - 40);
+        return new Point2D(t.x * zoom * (pers - t.z) / pers + 220,
+                -t.y * zoom *(pers - t.z) / pers - 70);
     }
 }
