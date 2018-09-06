@@ -164,7 +164,12 @@ public class GeoAcoustics {
 
         @Override
         void draw(Graphics2D g, Function<Vec, Point2D> t) {
-            throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+            var tp1 = t.apply(p1);
+            var tp2 = t.apply(p3);
+            var tpos = t.apply(pos);
+            g.drawLine((int) tp1.x,  (int)tp1.y,  (int)tp2.x,  (int) tp2.y);
+            g.drawLine((int) tp2.x,  (int)tp2.y,  (int)tpos.x, (int) tpos.y);
+            g.drawLine((int) tpos.x, (int)tpos.y, (int)tp1.x,  (int) tp1.y);
         }
 
     }
@@ -201,6 +206,7 @@ public class GeoAcoustics {
     
     static class Rectangle extends Surface {
         Vec ul, ur, br, bl;
+        Polygon p1, p2;
 
         public Rectangle(Vec ul, Vec ur, Vec br, Vec bl, Material material) {
             super(ul, material);
@@ -208,6 +214,9 @@ public class GeoAcoustics {
             this.ur = ur;
             this.br = br;
             this.bl = bl;
+            
+            p1 = new Polygon(ul, ur, br, material);
+            p2 = new Polygon(ul, br, bl, material);
         }
 
         @Override
@@ -228,7 +237,11 @@ public class GeoAcoustics {
 
         @Override
         double intersect(Ray y, Surface[] robj) {
-            throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+            double ret = p1.intersect(y, robj);
+            if (ret != 0) {
+                return ret;
+            }
+            return p2.intersect(y, robj);
         }
     }
     
