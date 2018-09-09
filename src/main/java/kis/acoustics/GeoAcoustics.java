@@ -6,8 +6,9 @@ import static java.lang.Math.sqrt;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
+import java.util.List;
+import java.util.Optional;
 import java.util.function.Function;
-import java.util.stream.Stream;
 import javax.swing.ImageIcon;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
@@ -215,8 +216,8 @@ public class GeoAcoustics {
             this.br = br;
             this.bl = bl;
             
-            p1 = new Polygon(ul, ur, br, material);
-            p2 = new Polygon(ul, br, bl, material);
+            p1 = new Polygon(ul, br, ur, material);
+            p2 = new Polygon(ul, bl, br, material);
         }
 
         @Override
@@ -245,7 +246,7 @@ public class GeoAcoustics {
         }
     }
     
-    static Vec[] points = {
+    static final Vec[] points = {
         new Vec( 0, 0,  0), // 0
         new Vec(10, 0,  0), // 1
         new Vec(10, 7,  0), // 2
@@ -256,30 +257,38 @@ public class GeoAcoustics {
         new Vec( 0, 7, 10), // 7
     };
     
-    static Surface[] surfaces = {
+    static final List<Surface> surfaces = List.of(
         new Rectangle(points[0], points[1], points[2], points[3], Material.CONCRETE),
         new Rectangle(points[1], points[0], points[4], points[5], Material.WOOD_FLOOR),
         new Rectangle(points[5], points[4], points[7], points[6], Material.CONCRETE),
         new Rectangle(points[6], points[7], points[3], points[2], Material.CARPET_PILE),
         new Rectangle(points[2], points[1], points[5], points[6], Material.CONCRETE),
         new Rectangle(points[0], points[3], points[7], points[4], Material.CONCRETE)
-    };
+    );
     
     
     public static void main(String[] args) {
         JFrame frame = new JFrame("Hall");
         
-        Point2D[] ps = Stream.of(points)
-                .map(GeoAcoustics::trans)
-                .toArray(Point2D[]::new);
-
         Vec source = new Vec(3, 2, 3);
-        SoundRay ray = new SoundRay(new Ray(source, source.add(new Vec(1, 1, 1).normalize())), 1);
+        Optional<SoundRay> ray = Optional.of(new SoundRay(new Ray(source, new Vec(1, 1, 1).normalize()), 1));
+        ray.isPresent();
+        Optional<Vec> v = surfaces.stream()
+                .map(s -> {
+                    var ret = new Surface[1];
+                    double d = s.intersect(ray.get().ray, ret);
+                    return new Object[]{d, ret[0]};
+                })
+                .filter(ret -> (double)ret[0] > 0)
+                .sorted((c1, c2) -> ((Double)c1[0]).compareTo((Double)c2[0]))
+                .findFirst()
+                .map(ret -> ray.get().ray.obj.add(ray.get().ray.dist.mul((double)ret[0])));
+            // 衝突点をもとめる
+            // 反射をもとめる
+            // 再計算
         
+                
         BufferedImage img = new BufferedImage(400, 350, BufferedImage.TYPE_INT_RGB);
-        Graphics2D g = img.createGraphics();
-        g.setColor(Color.WHITE);
-        Stream.of(surfaces).forEach(s -> s.draw(g, GeoAcoustics::trans));
         
         JLabel label = new JLabel(new ImageIcon(img));
         frame.add(label);
@@ -288,11 +297,27 @@ public class GeoAcoustics {
         frame.setSize(500, 400);
         frame.setVisible(true);
         
+        new Thread(() -> {
+            try {
+                for (int i = 0; i < 400; ++i) {
+                    double dig = i * Math.PI / 200;
+                    Function<Vec, Point2D> t = p -> trans(p, dig);
+                    Graphics2D g = img.createGraphics();
+                    g.setColor(Color.BLACK);
+                    g.fillRect(0, 0, 400, 350);
+                    g.setColor(Color.WHITE);
+                    surfaces.forEach(s -> s.draw(g, t));
+                    label.repaint();
+                    Thread.sleep(100);
+                }
+            } catch (InterruptedException ex) {
+            }
+        }).start();
     }
     
     static Vec offset = new Vec(-5, -12.5, 0);
-    static Point2D trans(Vec p) {
-        Vec t = p.add(offset).turny(1/4.);
+    static Point2D trans(Vec p, double dig) {
+        Vec t = p.add(offset).turny(dig);
         int pers = 70;
         int zoom = 30;
         return new Point2D(t.x * zoom * (pers - t.z) / pers + 220,
