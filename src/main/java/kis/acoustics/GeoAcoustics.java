@@ -6,6 +6,7 @@ import static java.lang.Math.sqrt;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
@@ -272,20 +273,31 @@ public class GeoAcoustics {
         
         Vec source = new Vec(3, 2, 3);
         Optional<SoundRay> ray = Optional.of(new SoundRay(new Ray(source, new Vec(1, 1, 1).normalize()), 1));
-        ray.isPresent();
-        Optional<Vec> v = surfaces.stream()
-                .map(s -> {
-                    var ret = new Surface[1];
-                    double d = s.intersect(ray.get().ray, ret);
-                    return new Object[]{d, ret[0]};
-                })
-                .filter(ret -> (double)ret[0] > 0)
-                .sorted((c1, c2) -> ((Double)c1[0]).compareTo((Double)c2[0]))
-                .findFirst()
-                .map(ret -> ray.get().ray.obj.add(ray.get().ray.dist.mul((double)ret[0])));
+        List<SoundRay> rays = new ArrayList<>();
+        while(ray.isPresent()) {
+            Optional<SoundRay> v = surfaces.stream()
+                    .map(s -> {
+                        var ret = new Surface[1];
+                        double d = s.intersect(ray.get().ray, ret);
+                        return new Object[]{d, ret[0]};
+                    })
+                    .filter(ret -> (double)ret[0] > 0)
+                    .sorted((c1, c2) -> ((Double)c1[0]).compareTo((Double)c2[0]))
+                    .findFirst()
+                    .map(ret -> new SoundRay(
+                            new Ray(ray.get().ray.getObj(), 
+                                    ray.get().ray.obj.add(ray.get().ray.dist.mul((double)ret[0]))),
+                            ray.get().intensity));
+            if (v.isEmpty()) {
+                break;
+            }
+            SoundRay newray = v.get();
+            rays.add(newray);
+            break;
             // 衝突点をもとめる
             // 反射をもとめる
             // 再計算
+        }
         
                 
         BufferedImage img = new BufferedImage(400, 350, BufferedImage.TYPE_INT_RGB);
@@ -307,6 +319,12 @@ public class GeoAcoustics {
                     g.fillRect(0, 0, 400, 350);
                     g.setColor(Color.WHITE);
                     surfaces.forEach(s -> s.draw(g, t));
+                    g.setColor(Color.RED);
+                    rays.forEach(rr -> {
+                        var p = t.apply(rr.ray.obj);
+                        var p2 = t.apply(rr.ray.dist);
+                        g.drawLine((int)p.x, (int)p.y, (int)p2.x, (int)p2.y);
+                    });
                     label.repaint();
                     Thread.sleep(100);
                 }
