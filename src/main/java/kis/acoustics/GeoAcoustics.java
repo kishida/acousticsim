@@ -9,6 +9,7 @@ import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Random;
 import java.util.function.Function;
 import javax.swing.ImageIcon;
 import javax.swing.JFrame;
@@ -35,6 +36,12 @@ public class GeoAcoustics {
 
         final double x, y, z;
 
+        static Vec ofRandom(Random r) {
+            return new Vec(r.nextGaussian(),
+                           r.nextGaussian(),
+                           r.nextGaussian()).normalize();
+        }
+        
         Vec add(Vec b) {
             return new Vec(x + b.x, y + b.y, z + b.z);
         }
@@ -272,7 +279,8 @@ public class GeoAcoustics {
         JFrame frame = new JFrame("Hall");
         
         Vec source = new Vec(3, 2, 3);
-        Optional<SoundRay> ray = Optional.of(new SoundRay(new Ray(source, new Vec(1, 1, 1).normalize()), 1));
+        Random rand = new Random();
+        Optional<SoundRay> ray = Optional.of(new SoundRay(new Ray(source, Vec.ofRandom(rand)), 1));
         List<SoundRay> rays = new ArrayList<>();
         while(ray.isPresent()) {
             Optional<SoundRay> v = surfaces.stream()
