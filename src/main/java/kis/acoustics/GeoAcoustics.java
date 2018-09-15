@@ -1,5 +1,6 @@
 package kis.acoustics;
 
+import java.awt.BorderLayout;
 import static java.lang.Math.cos;
 import static java.lang.Math.sin;
 import static java.lang.Math.sqrt;
@@ -8,6 +9,7 @@ import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Queue;
 import java.util.Random;
@@ -132,7 +134,9 @@ public class GeoAcoustics {
         
         @Override
         void draw(Graphics2D g, Function<Vec, Point2D> t) {
-            throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+            var p = t.apply(pos);
+            var r = size(pos, rad);
+            g.drawOval((int)(p.x - r), (int)(p.y - r), (int)r * 2, (int)r * 2);
         }
         
     }
@@ -200,6 +204,7 @@ public class GeoAcoustics {
     static final class SoundRay {
         Ray ray;
         double intensity;
+        double distance;
     }
     
     @Value
@@ -291,19 +296,39 @@ public class GeoAcoustics {
         new Rectangle(points[2], points[1], points[5], points[6], Material.CONCRETE),
         new Rectangle(points[0], points[3], points[7], points[4], Material.CONCRETE)
     );
-    
+    @AllArgsConstructor
+    static class DoublePair {
+        double distance, intensity;
+
+        @Override
+        public String toString() {
+            return String.format("%.3f(%.3f)", distance, intensity);
+        }
+        
+    }
     
     public static void main(String[] args) {
         JFrame frame = new JFrame("Hall");
         
         Vec source = new Vec(3, 2, 3);
+        var mic = new Sphere(.1, new Vec(8, 2, 3), Material.RELRECTOR);
         Random rand = new Random();
         Queue<SoundRay> ray = new ArrayDeque<>();
-        IntStream.range(0, 10).forEach(i -> 
-            ray.add(new SoundRay(new Ray(source, Vec.ofRandom(rand)), 1)));
+        IntStream.range(0, 100000).forEach(i -> 
+            ray.add(new SoundRay(new Ray(source, Vec.ofRandom(rand)), 1, 0)));
         List<SoundRay> rays = new ArrayList<>();
+        var sr = new Surface[1];
+        var arrivals = new ArrayList<DoublePair>();
         while(!ray.isEmpty()) {
             var r = ray.poll();
+            if (r.distance > 340 * 4) {
+                continue;
+            }
+            var dist = mic.intersect(r.ray, sr);
+            if (dist != 0) {
+                arrivals.add(new DoublePair(dist + r.distance, r.intensity));
+            }
+            
             surfaces.stream()
                     .map(s -> {
                         var ret = new Surface[1];
@@ -317,23 +342,27 @@ public class GeoAcoustics {
                         var p = r.ray.obj.add(r.ray.dist.mul((double)ret[0]));
                         var collid = new SoundRay( // 衝突点をもとめる
                             new Ray(r.ray.getObj(), p),
-                            r.intensity);
+                            r.intensity, (double)ret[0]);
                         rays.add(collid);
-                        var n = ((Surface) ret[1]).getNormal(p);
-                        var t = r.intensity * .6;
-                        if (t < 0.1) {
+                        var s = (Surface) ret[1];
+                        var n = (s).getNormal(p);
+                        var t = r.intensity * (1 - s.material.absorptions[1]);
+                        if (t < 0.01) {
                             return;
                         }
-                        ray.offer(new SoundRay(new Ray(p, reflect(r.ray.dist, n)), t));
+                        ray.offer(new SoundRay(new Ray(p, reflect(r.ray.dist, n)), t,
+                                r.distance + (double)ret[0]));
                     });
         }
         
                 
         BufferedImage img = new BufferedImage(400, 350, BufferedImage.TYPE_INT_RGB);
-        
         JLabel label = new JLabel(new ImageIcon(img));
         frame.add(label);
-        
+
+        BufferedImage graph = new BufferedImage(400, 100, BufferedImage.TYPE_INT_RGB);
+        var lblGraph = new JLabel(new ImageIcon(graph));
+        frame.add(BorderLayout.SOUTH, lblGraph);
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.setSize(500, 400);
         frame.setVisible(true);
@@ -349,18 +378,37 @@ public class GeoAcoustics {
                     g.setColor(Color.WHITE);
                     surfaces.forEach(s -> s.draw(g, t));
                     
-                    rays.forEach(rr -> {
+                    rays.stream().limit(20).forEach(rr -> {
                         g.setColor(new Color((float)rr.intensity, 0, 0));
                         var p = t.apply(rr.ray.obj);
                         var p2 = t.apply(rr.ray.dist);
                         g.drawLine((int)p.x, (int)p.y, (int)p2.x, (int)p2.y);
                     });
+                    
+                    g.setColor(Color.YELLOW);
+                    mic.draw(g, t);
                     label.repaint();
                     Thread.sleep(100);
                 }
             } catch (InterruptedException ex) {
             }
         }).start();
+        System.out.println(arrivals.size());
+        Collections.sort(arrivals, (d1, d2) -> Double.compare(d1.distance, d2.distance));
+        var echo = new double[500];
+        for (var ar : arrivals) {
+            var index = (int)(ar.distance / 340 * 100);
+            if (index < echo.length) {
+                echo[index] += ar.intensity * ar.intensity;
+            }
+        }
+        var g2 = graph.createGraphics();
+        g2.setColor(Color.WHITE);
+        g2.fillRect(0, 0, 400, 100);
+        g2.setColor(Color.BLACK);
+        for (int i = 0; i < 400; ++i) {
+            g2.drawLine(i, (int)(80 - Math.sqrt(echo[i]) * 20), i, 80);
+        }
     }
     
     static Vec offset = new Vec(-5, -12.5, 0);
@@ -371,7 +419,12 @@ public class GeoAcoustics {
         return new Point2D(t.x * zoom * (pers - t.z) / pers + 220,
                 -t.y * zoom *(pers - t.z) / pers - 70);
     }
-    
+    static double size(Vec p, double r) {
+        Vec t = p.add(offset).turny(20 * Math.PI / 200);
+        int pers = 70;
+        int zoom = 30;
+        return r * zoom * (pers - t.z) / pers;
+    }
     static Vec reflect(Vec f, Vec n) {
         return f.add(n.mul(2 * f.mul(-1).dot(n)));
     }
