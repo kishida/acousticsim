@@ -6,11 +6,13 @@ import static java.lang.Math.sqrt;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
+import java.util.Queue;
 import java.util.Random;
 import java.util.function.Function;
+import java.util.stream.IntStream;
 import javax.swing.ImageIcon;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
@@ -97,6 +99,7 @@ public class GeoAcoustics {
 
         abstract void draw(Graphics2D g, Function<Vec, Point2D> t);
         abstract double intersect(Ray y, Surface[] robj);
+        abstract Vec getNormal(Vec point);
     }
     
     static final class Sphere extends Surface {
@@ -122,6 +125,11 @@ public class GeoAcoustics {
             return (t = b - det) > EPS ? t : ((t = b + det) > EPS ? t : 0);
         }
 
+        @Override
+        Vec getNormal(Vec point) {
+            return point.sub(pos).normalize();
+        }
+        
         @Override
         void draw(Graphics2D g, Function<Vec, Point2D> t) {
             throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
@@ -171,6 +179,11 @@ public class GeoAcoustics {
             return t;
         }
 
+        @Override
+        Vec getNormal(Vec point) {
+            return normal;
+        }
+        
         @Override
         void draw(Graphics2D g, Function<Vec, Point2D> t) {
             var tp1 = t.apply(p1);
@@ -245,6 +258,11 @@ public class GeoAcoustics {
         }
 
         @Override
+        Vec getNormal(Vec point) {
+            return p1.getNormal(point);
+        }
+        
+        @Override
         double intersect(Ray y, Surface[] robj) {
             double ret = p1.intersect(y, robj);
             if (ret != 0) {
@@ -280,31 +298,34 @@ public class GeoAcoustics {
         
         Vec source = new Vec(3, 2, 3);
         Random rand = new Random();
-        Optional<SoundRay> ray = Optional.of(new SoundRay(new Ray(source, Vec.ofRandom(rand)), 1));
+        Queue<SoundRay> ray = new ArrayDeque<>();
+        IntStream.range(0, 10).forEach(i -> 
+            ray.add(new SoundRay(new Ray(source, Vec.ofRandom(rand)), 1)));
         List<SoundRay> rays = new ArrayList<>();
-        while(ray.isPresent()) {
-            Optional<SoundRay> v = surfaces.stream()
+        while(!ray.isEmpty()) {
+            var r = ray.poll();
+            surfaces.stream()
                     .map(s -> {
                         var ret = new Surface[1];
-                        double d = s.intersect(ray.get().ray, ret);
+                        double d = s.intersect(r.ray, ret);
                         return new Object[]{d, ret[0]};
                     })
                     .filter(ret -> (double)ret[0] > 0)
                     .sorted((c1, c2) -> ((Double)c1[0]).compareTo((Double)c2[0]))
                     .findFirst()
-                    .map(ret -> new SoundRay(
-                            new Ray(ray.get().ray.getObj(), 
-                                    ray.get().ray.obj.add(ray.get().ray.dist.mul((double)ret[0]))),
-                            ray.get().intensity));
-            if (v.isEmpty()) {
-                break;
-            }
-            SoundRay newray = v.get();
-            rays.add(newray);
-            break;
-            // 衝突点をもとめる
-            // 反射をもとめる
-            // 再計算
+                    .ifPresent(ret -> {
+                        var p = r.ray.obj.add(r.ray.dist.mul((double)ret[0]));
+                        var collid = new SoundRay( // 衝突点をもとめる
+                            new Ray(r.ray.getObj(), p),
+                            r.intensity);
+                        rays.add(collid);
+                        var n = ((Surface) ret[1]).getNormal(p);
+                        var t = r.intensity * .6;
+                        if (t < 0.1) {
+                            return;
+                        }
+                        ray.offer(new SoundRay(new Ray(p, reflect(r.ray.dist, n)), t));
+                    });
         }
         
                 
@@ -319,7 +340,7 @@ public class GeoAcoustics {
         
         new Thread(() -> {
             try {
-                for (int i = 0; i < 400; ++i) {
+                for (int i = 20; i < 21; ++i) {
                     double dig = i * Math.PI / 200;
                     Function<Vec, Point2D> t = p -> trans(p, dig);
                     Graphics2D g = img.createGraphics();
@@ -327,8 +348,9 @@ public class GeoAcoustics {
                     g.fillRect(0, 0, 400, 350);
                     g.setColor(Color.WHITE);
                     surfaces.forEach(s -> s.draw(g, t));
-                    g.setColor(Color.RED);
+                    
                     rays.forEach(rr -> {
+                        g.setColor(new Color((float)rr.intensity, 0, 0));
                         var p = t.apply(rr.ray.obj);
                         var p2 = t.apply(rr.ray.dist);
                         g.drawLine((int)p.x, (int)p.y, (int)p2.x, (int)p2.y);
@@ -348,5 +370,9 @@ public class GeoAcoustics {
         int zoom = 30;
         return new Point2D(t.x * zoom * (pers - t.z) / pers + 220,
                 -t.y * zoom *(pers - t.z) / pers - 70);
+    }
+    
+    static Vec reflect(Vec f, Vec n) {
+        return f.add(n.mul(2 * f.mul(-1).dot(n)));
     }
 }
