@@ -23,7 +23,8 @@ import javax.swing.JLabel;
  */
 public class LoadWav {
     public static void main(String[] args) throws Exception {
-        var name = "/Users/ST20197/Downloads/a2002011001-e02.wav";
+        // var name = "/Users/ST20197/Downloads/a2002011001-e02.wav";
+        var name = "C:\\Users\\naoki\\Dropbox\\harp.wav";
         var file = new File(name);
         try (var is = AudioSystem.getAudioInputStream(file)) {
             var format = is.getFormat();
@@ -40,8 +41,9 @@ public class LoadWav {
             g.setColor(Color.BLACK);
             int len = (int)(format.getSampleRate() * 10);
             var bytes = new byte[format.getFrameSize()];
-            var signals = new short[10][];
-            signals[0] = new short[len];
+            var signals = new short[2][10][];
+            signals[0][0] = new short[len];
+            signals[1][0] = new short[len];
             for (int i = 0; i < len; ++i) {
                 if (is.read(bytes) < 0) {
                     System.out.println(i);
@@ -51,29 +53,56 @@ public class LoadWav {
                 short right = buffer.getShort();
                 short left = buffer.getShort();
                 pathL.lineTo(i, left);
-                pathR.lineTo(i, right);
-                signals[0][i] = left;
+                //pathR.lineTo(i, right);
+                signals[0][0][i] = left;
+                signals[1][0][i] = right;
             }
             
             // wavelet transform
-            var wlen = len;
-            var base = signals[0];
-            for (int i = 1; i < signals.length - 1; ++i) {
-                wlen /= 2;
-                signals[i] = new short[wlen];
-                var next = new short[wlen];
-                for (int j = 0; j < wlen; ++j) {
-                    signals[i][j] = (short)
-                            ((base[j * 2] - base[j * 2 + 1]) / 2);
-                    next[j] = (short)((base[j * 2] + base[j * 2 + 1]) / 2);
+            for (var ch = 0; ch < 2; ++ch) {
+                var wlen = len;
+                var base = signals[ch][0];
+                for (int i = 1; i < signals[ch].length - 1; ++i) {
+                    wlen /= 2;
+                    signals[ch][i] = new short[wlen];
+                    var next = new short[wlen];
+                    for (int j = 0; j < wlen; ++j) {
+                        signals[ch][i][j] = (short)
+                                ((base[j * 2] - base[j * 2 + 1]) / 2);
+                        next[j] = (short)((base[j * 2] + base[j * 2 + 1]) / 2);
+                    }
+                    base = next;
                 }
-                base = next;
+                signals[ch][signals[ch].length - 1] = base;
             }
-            signals[signals.length - 1] = base;
             
+            for (var ch = 0; ch < 2; ++ch) {
+                var shift = (int)(format.getSampleRate() / .3 / 8); // 0.3秒ディレイ
+                for (var i = 1; i < signals[ch].length; ++i) {
+                    for (var j = signals[ch][i].length - 1; j >= shift; --j) {
+                        signals[ch][i][j] += signals[ch][i][j - shift] / 2;
+                    }
+                    shift /= 2;
+                }
+            }
+            
+            var result = new short[2][];
             // wavelet invert transform
-            
-            
+            for (var ch = 0; ch < 2; ++ch) {
+                var last = signals[ch][signals[ch].length - 1];
+                for (int i = signals[ch].length - 2; i > 0; --i) {
+                    var next = new short[last.length * 2];
+                    for (int j = 0; j < last.length; ++j) {
+                        next[j * 2] = (short) (last[j] + signals[ch][i][j]);
+                        next[j * 2 + 1] = (short) (last[j] - signals[ch][i][j]);
+                    }
+                    last = next;
+                }
+                result[ch] = last;
+            }
+            for (int i = 0; i < result[0].length; ++i) {
+                pathR.lineTo(i, result[0][i]);
+            }
             
             var sizer = AffineTransform.getScaleInstance(
                     500. / len, -100. / Short.MAX_VALUE);
