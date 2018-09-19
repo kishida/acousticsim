@@ -9,10 +9,16 @@ import java.awt.Color;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.Path2D;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.Arrays;
+import javax.sound.sampled.AudioInputStream;
 import javax.sound.sampled.AudioSystem;
+import javax.sound.sampled.Clip;
+import javax.sound.sampled.DataLine;
 import javax.swing.ImageIcon;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
@@ -39,7 +45,7 @@ public class LoadWav {
             g.setColor(Color.WHITE);
             g.fillRect(0, 0, 600, 400);
             g.setColor(Color.BLACK);
-            int len = (int)(format.getSampleRate() * 10);
+            int len = Math.min((int)(format.getSampleRate() * 10), (int)is.getFrameLength());
             var bytes = new byte[format.getFrameSize()];
             var signals = new short[2][10][];
             signals[0][0] = new short[len];
@@ -76,11 +82,23 @@ public class LoadWav {
                 signals[ch][signals[ch].length - 1] = base;
             }
             
+            // delay
+            var delay = new double[][]{
+                {.1, .5},
+                {.2, .2},
+                {.3, .1},
+            };
+            var shifts = Arrays.stream(delay)
+                    .mapToDouble(d -> d[0])
+                    .mapToInt(t -> (int)(format.getSampleRate() * t))
+                    .map(t -> t - (t & 0b111111111))
+                    .toArray();
             for (var ch = 0; ch < 2; ++ch) {
-                var shift = (int)(format.getSampleRate() / .3 / 8); // 0.3秒ディレイ
+                var shift = (int)(format.getSampleRate() * .1); // 0.1秒ディレイ
+                shift -= shift & 0b111111111; // 位相ずれが起きないようにする
                 for (var i = 1; i < signals[ch].length; ++i) {
                     for (var j = signals[ch][i].length - 1; j >= shift; --j) {
-                        signals[ch][i][j] += signals[ch][i][j - shift] / 2;
+                        signals[ch][i][j] += (short)(signals[ch][i][j - shift] / 2);
                     }
                     shift /= 2;
                 }
@@ -100,6 +118,26 @@ public class LoadWav {
                 }
                 result[ch] = last;
             }
+
+            // write wav
+            var out = new ByteArrayOutputStream();
+            for (int i = 0; i < result[0].length; ++i) {
+                var buf = new byte[4];
+                var outbuf = ByteBuffer.wrap(buf).order(ByteOrder.LITTLE_ENDIAN);
+                for (int ch = 0; ch < 2; ++ch) {
+                    outbuf.putShort(result[ch][i]);
+                }
+                out.writeBytes(buf);
+            }
+            var ais = new AudioInputStream(new ByteArrayInputStream(out.toByteArray()),
+                    format, len);
+            var dataline = new DataLine.Info(Clip.class,format);
+            var clip = (Clip) AudioSystem.getLine(dataline);
+            clip.open(ais);
+            clip.start();
+            //clip.close();
+            
+            // draw
             for (int i = 0; i < result[0].length; ++i) {
                 pathR.lineTo(i, result[0][i]);
             }
