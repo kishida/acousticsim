@@ -9,6 +9,7 @@ import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Queue;
@@ -28,9 +29,7 @@ import lombok.Value;
 public class GeoAcoustics {
 
     private static final double GAMMA = 2.2;
-    private static final double RECIP_GAMMA = 1 / GAMMA;
     private static final double EPS = 1e-4;
-    private static final double INF = 1e20;
 
     @AllArgsConstructor
     static final class Vec {
@@ -203,7 +202,7 @@ public class GeoAcoustics {
     @Value
     static final class SoundRay {
         Ray ray;
-        double intensity;
+        double[] intensity;
         double distance;
     }
     
@@ -221,7 +220,7 @@ public class GeoAcoustics {
         CARPET_PILE  (0.09, 0.10, 0.20, 0.25, 0.30, 0.40),
         CURTAIN_FLAT (0.05, 0.07, 0.13, 0.22, 0.32, 0.35),
         CURTAIN_PLEAT(0.10, 0.25, 0.55, 0.65, 0.70, 0.70),
-        RELRECTOR    (0.20, 0.13, 0.10, 0.07, 0.06, 0.06)
+        REFRECTOR    (0.20, 0.13, 0.10, 0.07, 0.06, 0.06)
         ;
         
         double[] absorptions;
@@ -291,14 +290,14 @@ public class GeoAcoustics {
     static final List<Surface> surfaces = List.of(
         new Rectangle(points[0], points[1], points[2], points[3], Material.CONCRETE),
         new Rectangle(points[1], points[0], points[4], points[5], Material.WOOD_FLOOR),
-        new Rectangle(points[5], points[4], points[7], points[6], Material.CONCRETE),
+        new Rectangle(points[5], points[4], points[7], points[6], Material.WALL_CLOTH),
         new Rectangle(points[6], points[7], points[3], points[2], Material.CARPET_PILE),
-        new Rectangle(points[2], points[1], points[5], points[6], Material.CONCRETE),
-        new Rectangle(points[0], points[3], points[7], points[4], Material.CONCRETE)
+        new Rectangle(points[2], points[1], points[5], points[6], Material.WALL_CLOTH),
+        new Rectangle(points[0], points[3], points[7], points[4], Material.WALL_CLOTH)
     );
     @AllArgsConstructor
     static class DoublePair {
-        double distance, intensity;
+        double distance, intensity[];
 
         @Override
         public String toString() {
@@ -311,11 +310,11 @@ public class GeoAcoustics {
         JFrame frame = new JFrame("Hall");
         
         Vec source = new Vec(3, 2, 3);
-        var mic = new Sphere(.1, new Vec(8, 2, 3), Material.RELRECTOR);
+        var mic = new Sphere(.1, new Vec(8, 2, 3), Material.REFRECTOR);
         Random rand = new Random();
         Queue<SoundRay> ray = new ArrayDeque<>();
         IntStream.range(0, 100000).forEach(i -> 
-            ray.add(new SoundRay(new Ray(source, Vec.ofRandom(rand)), 1, 0)));
+            ray.add(new SoundRay(new Ray(source, Vec.ofRandom(rand)), IntStream.range(0, 6).mapToDouble(n -> 1).toArray(), 0)));
         List<SoundRay> rays = new ArrayList<>();
         var sr = new Surface[1];
         var arrivals = new ArrayList<DoublePair>();
@@ -346,8 +345,10 @@ public class GeoAcoustics {
                         rays.add(collid);
                         var s = (Surface) ret[1];
                         var n = (s).getNormal(p);
-                        var t = r.intensity * (1 - s.material.absorptions[1]);
-                        if (t < 0.01) {
+                        var t = IntStream.range(0, 6)
+                                .mapToDouble(idx -> r.intensity[idx] * (1 - s.material.absorptions[idx]))
+                                .toArray();
+                        if (Arrays.stream(t).max().orElse(0) < 0.01) {
                             return;
                         }
                         ray.offer(new SoundRay(new Ray(p, reflect(r.ray.dist, n)), t,
@@ -360,7 +361,7 @@ public class GeoAcoustics {
         JLabel label = new JLabel(new ImageIcon(img));
         frame.add(label);
 
-        BufferedImage graph = new BufferedImage(400, 100, BufferedImage.TYPE_INT_RGB);
+        BufferedImage graph = new BufferedImage(600, 300, BufferedImage.TYPE_INT_RGB);
         var lblGraph = new JLabel(new ImageIcon(graph));
         frame.add(BorderLayout.SOUTH, lblGraph);
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -378,8 +379,8 @@ public class GeoAcoustics {
                     g.setColor(Color.WHITE);
                     surfaces.forEach(s -> s.draw(g, t));
                     
-                    rays.stream().limit(20).forEach(rr -> {
-                        g.setColor(new Color((float)rr.intensity, 0, 0));
+                    rays.stream().limit(30).forEach(rr -> {
+                        g.setColor(new Color((float)rr.intensity[3], 0, 0));
                         var p = t.apply(rr.ray.obj);
                         var p2 = t.apply(rr.ray.dist);
                         g.drawLine((int)p.x, (int)p.y, (int)p2.x, (int)p2.y);
@@ -395,19 +396,29 @@ public class GeoAcoustics {
         }).start();
         System.out.println(arrivals.size());
         Collections.sort(arrivals, (d1, d2) -> Double.compare(d1.distance, d2.distance));
-        var echo = new double[500];
+        var echo = new double[500][6];
         for (var ar : arrivals) {
             var index = (int)(ar.distance / 340 * 100);
             if (index < echo.length) {
-                echo[index] += ar.intensity * ar.intensity;
+                for (int i = 0; i < 6; ++i) {
+                    echo[index][i] += ar.intensity[i] * ar.intensity[i];
+                }
             }
         }
         var g2 = graph.createGraphics();
         g2.setColor(Color.WHITE);
-        g2.fillRect(0, 0, 400, 100);
+        g2.fillRect(0, 0, 600, 300);
         g2.setColor(Color.BLACK);
-        for (int i = 0; i < 400; ++i) {
-            g2.drawLine(i, (int)(80 - Math.sqrt(echo[i]) * 20), i, 80);
+        String[] hz = {"125Hz", "250Hz", "500Hz", "1KHz", "2KHz", "4KHz"};
+        for (int f = 0; f < 6; ++f) {
+            var offx = (f % 2) * 300;
+            var offy = (f / 2) * 100;
+            g2.drawString(hz[f], offx + 250, offy + 25);
+            for (int i = 0; i < 300; ++i) {
+                g2.drawLine(
+                        i + offx, (int)(80 - Math.sqrt(echo[i][f]) * 20) + offy,
+                        i + offx, 80 + offy);
+            }
         }
     }
     
