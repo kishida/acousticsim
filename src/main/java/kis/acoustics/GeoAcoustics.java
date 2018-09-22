@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Queue;
 import java.util.Random;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import javax.swing.ImageIcon;
 import javax.swing.JFrame;
@@ -311,52 +312,58 @@ public class GeoAcoustics {
         
         Vec source = new Vec(3, 2, 3);
         var mic = new Sphere(.1, new Vec(8, 2, 3), Material.REFRECTOR);
-        Random rand = new Random();
-        Queue<SoundRay> ray = new ArrayDeque<>();
-        IntStream.range(0, 100000).forEach(i -> 
-            ray.add(new SoundRay(new Ray(source, Vec.ofRandom(rand)), IntStream.range(0, 6).mapToDouble(n -> 1).toArray(), 0)));
-        List<SoundRay> rays = new ArrayList<>();
-        var sr = new Surface[1];
-        var arrivals = new ArrayList<DoublePair>();
-        while(!ray.isEmpty()) {
-            var r = ray.poll();
-            if (r.distance > 340 * 4) {
-                continue;
-            }
-            var dist = mic.intersect(r.ray, sr);
-            if (dist != 0) {
-                arrivals.add(new DoublePair(dist + r.distance, r.intensity));
-            }
-            
-            surfaces.stream()
-                    .map(s -> {
-                        var ret = new Surface[1];
-                        double d = s.intersect(r.ray, ret);
-                        return new Object[]{d, ret[0]};
-                    })
-                    .filter(ret -> (double)ret[0] > 0)
-                    .sorted((c1, c2) -> ((Double)c1[0]).compareTo((Double)c2[0]))
-                    .findFirst()
-                    .ifPresent(ret -> {
-                        var p = r.ray.obj.add(r.ray.dist.mul((double)ret[0]));
-                        var collid = new SoundRay( // 衝突点をもとめる
-                            new Ray(r.ray.getObj(), p),
-                            r.intensity, (double)ret[0]);
-                        rays.add(collid);
-                        var s = (Surface) ret[1];
-                        var n = (s).getNormal(p);
-                        var t = IntStream.range(0, 6)
-                                .mapToDouble(idx -> r.intensity[idx] * (1 - s.material.absorptions[idx]))
-                                .toArray();
-                        if (Arrays.stream(t).max().orElse(0) < 0.01) {
-                            return;
-                        }
-                        ray.offer(new SoundRay(new Ray(p, reflect(r.ray.dist, n)), t,
-                                r.distance + (double)ret[0]));
-                    });
-        }
         
-                
+        var start = System.currentTimeMillis();
+        var iterate = 100000/ 200;
+        var arrivals = IntStream.range(0, 200).parallel().mapToObj(__ -> {
+            Random rand = new Random();
+            Queue<SoundRay> ray = new ArrayDeque<>();
+            IntStream.range(0, iterate).forEach(i -> 
+                ray.add(new SoundRay(new Ray(source, Vec.ofRandom(rand)), IntStream.range(0, 6).mapToDouble(n -> 1).toArray(), 0)));
+            List<SoundRay> rays = new ArrayList<>();
+            var sr = new Surface[1];
+            var divArrivals = new ArrayList<DoublePair>();
+            while(!ray.isEmpty()) {
+                var r = ray.poll();
+                if (r.distance > 340 * 4) {
+                    continue;
+                }
+                var dist = mic.intersect(r.ray, sr);
+                if (dist != 0) {
+                    divArrivals.add(new DoublePair(dist + r.distance, r.intensity));
+                }
+
+                surfaces.stream()
+                        .map(s -> {
+                            var ret = new Surface[1];
+                            double d = s.intersect(r.ray, ret);
+                            return new Object[]{d, ret[0]};
+                        })
+                        .filter(ret -> (double)ret[0] > 0)
+                        .sorted((c1, c2) -> ((Double)c1[0]).compareTo((Double)c2[0]))
+                        .findFirst()
+                        .ifPresent(ret -> {
+                            var p = r.ray.obj.add(r.ray.dist.mul((double)ret[0]));
+                            var collid = new SoundRay( // 衝突点をもとめる
+                                new Ray(r.ray.getObj(), p),
+                                r.intensity, (double)ret[0]);
+                            rays.add(collid);
+                            var s = (Surface) ret[1];
+                            var n = (s).getNormal(p);
+                            var t = IntStream.range(0, 6)
+                                    .mapToDouble(idx -> r.intensity[idx] * (1 - s.material.absorptions[idx]))
+                                    .toArray();
+                            if (Arrays.stream(t).max().orElse(0) < 0.01) {
+                                return;
+                            }
+                            ray.offer(new SoundRay(new Ray(p, reflect(r.ray.dist, n)), t,
+                                    r.distance + (double)ret[0]));
+                        });
+            }
+            return divArrivals;
+        }).flatMap(List::stream).collect(Collectors.toList());
+        System.out.println((System.currentTimeMillis() - start) / 1000. + "s");
+        
         BufferedImage img = new BufferedImage(400, 350, BufferedImage.TYPE_INT_RGB);
         JLabel label = new JLabel(new ImageIcon(img));
         frame.add(label);
@@ -378,13 +385,13 @@ public class GeoAcoustics {
                     g.fillRect(0, 0, 400, 350);
                     g.setColor(Color.WHITE);
                     surfaces.forEach(s -> s.draw(g, t));
-                    
+                    /*
                     rays.stream().limit(30).forEach(rr -> {
                         g.setColor(new Color((float)rr.intensity[3], 0, 0));
                         var p = t.apply(rr.ray.obj);
                         var p2 = t.apply(rr.ray.dist);
                         g.drawLine((int)p.x, (int)p.y, (int)p2.x, (int)p2.y);
-                    });
+                    });*/
                     
                     g.setColor(Color.YELLOW);
                     mic.draw(g, t);
