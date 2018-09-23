@@ -29,7 +29,6 @@ import lombok.Value;
  */
 public class GeoAcoustics {
 
-    private static final double GAMMA = 2.2;
     private static final double EPS = 1e-4;
 
     @AllArgsConstructor
@@ -91,7 +90,6 @@ public class GeoAcoustics {
     @Value
     static final class Ray {
         final Vec obj, dist;
-
     }
 
     @AllArgsConstructor
@@ -314,8 +312,10 @@ public class GeoAcoustics {
         var mic = new Sphere(.1, new Vec(8, 2, 3), Material.REFRECTOR);
         
         var start = System.currentTimeMillis();
-        var iterate = 100000/ 200;
-        var arrivals = IntStream.range(0, 200).parallel().mapToObj(__ -> {
+        var samples = 500_000;
+        var divides = 200;
+        var iterate = samples/ divides;
+        var arrivals = IntStream.range(0, divides).parallel().mapToObj(__ -> {
             Random rand = new Random();
             Queue<SoundRay> ray = new ArrayDeque<>();
             IntStream.range(0, iterate).forEach(i -> 
@@ -403,12 +403,18 @@ public class GeoAcoustics {
         }).start();
         System.out.println(arrivals.size());
         Collections.sort(arrivals, (d1, d2) -> Double.compare(d1.distance, d2.distance));
-        var echo = new double[500][6];
+        int[] hz = {125, 250, 500, 1000, 2000, 4000};
+        var echo = new double[hz.length][];
+        var echoLen = 5; // second
+        for (int i = 0; i < hz.length; ++i) {
+            echo[i] = new double[hz[i] * echoLen * 2];
+        }
+        var soundSpeed = 340;
         for (var ar : arrivals) {
-            var index = (int)(ar.distance / 340 * 100);
-            if (index < echo.length) {
-                for (int i = 0; i < 6; ++i) {
-                    echo[index][i] += ar.intensity[i] * ar.intensity[i];
+            for (int i = 0; i < 6; ++i) {
+                var index = (int)(ar.distance / soundSpeed * hz[i] * 2);
+                if (index < echo[i].length) {
+                    echo[i][index] += ar.intensity[i] * ar.intensity[i];
                 }
             }
         }
@@ -416,15 +422,20 @@ public class GeoAcoustics {
         g2.setColor(Color.WHITE);
         g2.fillRect(0, 0, 600, 300);
         g2.setColor(Color.BLACK);
-        String[] hz = {"125Hz", "250Hz", "500Hz", "1KHz", "2KHz", "4KHz"};
+        String[] hzStr = {"125Hz", "250Hz", "500Hz", "1KHz", "2KHz", "4KHz"};
         for (int f = 0; f < 6; ++f) {
             var offx = (f % 2) * 300;
             var offy = (f / 2) * 100;
-            g2.drawString(hz[f], offx + 250, offy + 25);
-            for (int i = 0; i < 300; ++i) {
+            var multi = 1 << f;
+            var ec = echo[f]; // for lambda
+            g2.drawString(hzStr[f], offx + 250, offy + 25);
+            for (int i = 0; i < Math.min(300 * multi, ec.length); i += multi) {
+                var ii = i; // for lambda
+                var intensity = IntStream.range(0, multi)
+                        .mapToDouble(idx -> ec[ii + idx]).sum();
                 g2.drawLine(
-                        i + offx, (int)(80 - Math.sqrt(echo[i][f]) * 20) + offy,
-                        i + offx, 80 + offy);
+                        i / multi + offx, (int)(80 - Math.sqrt(intensity) * 10) + offy,
+                        i / multi + offx, 80 + offy);
             }
         }
     }
