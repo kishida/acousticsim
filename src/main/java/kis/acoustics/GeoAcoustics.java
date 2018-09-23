@@ -448,7 +448,7 @@ public class GeoAcoustics {
                 "echo", echo);
         ObjectMapper om = new ObjectMapper();
         String json = om.writeValueAsString(data);
-        Files.writeString(Path.of("echo.json"), json);
+        // Files.writeString(Path.of("echo.json"), json);
     }
    
     static Vec offset = new Vec(-5, -12.5, 0);
