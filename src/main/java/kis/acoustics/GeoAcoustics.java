@@ -1,5 +1,6 @@
 package kis.acoustics;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.awt.BorderLayout;
 import static java.lang.Math.cos;
 import static java.lang.Math.sin;
@@ -7,11 +8,14 @@ import static java.lang.Math.sqrt;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Queue;
 import java.util.Random;
 import java.util.function.Function;
@@ -305,7 +309,7 @@ public class GeoAcoustics {
         
     }
     
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         JFrame frame = new JFrame("Hall");
         
         Vec source = new Vec(3, 2, 3);
@@ -438,8 +442,15 @@ public class GeoAcoustics {
                         i / multi + offx, 80 + offy);
             }
         }
+        
+        Map<String, Object> data = Map.of(
+                "freq", hz,
+                "echo", echo);
+        ObjectMapper om = new ObjectMapper();
+        String json = om.writeValueAsString(data);
+        Files.writeString(Path.of("echo.json"), json);
     }
-    
+   
     static Vec offset = new Vec(-5, -12.5, 0);
     static Point2D trans(Vec p, double dig) {
         Vec t = p.add(offset).turny(dig);
