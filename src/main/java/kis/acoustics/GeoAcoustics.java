@@ -423,6 +423,17 @@ public class GeoAcoustics {
             }
         }
         var g2 = graph.createGraphics();
+        drawEcho(g2, echo);
+        
+        Map<String, Object> data = Map.of(
+                "freq", hz,
+                "echo", echo);
+        ObjectMapper om = new ObjectMapper();
+        String json = om.writeValueAsString(data);
+        // Files.writeString(Path.of("echo.json"), json);
+    }
+
+    static void drawEcho(Graphics2D g2, double[][] echo) {
         g2.setColor(Color.WHITE);
         g2.fillRect(0, 0, 600, 300);
         g2.setColor(Color.BLACK);
@@ -435,20 +446,13 @@ public class GeoAcoustics {
             g2.drawString(hzStr[f], offx + 250, offy + 25);
             for (int i = 0; i < Math.min(300 * multi, ec.length); i += multi) {
                 var ii = i; // for lambda
-                var intensity = IntStream.range(0, multi)
+                var intensity = IntStream.range(0, Math.min(multi, ec.length - ii))
                         .mapToDouble(idx -> ec[ii + idx]).sum();
                 g2.drawLine(
                         i / multi + offx, (int)(80 - Math.sqrt(intensity) * 10) + offy,
                         i / multi + offx, 80 + offy);
             }
         }
-        
-        Map<String, Object> data = Map.of(
-                "freq", hz,
-                "echo", echo);
-        ObjectMapper om = new ObjectMapper();
-        String json = om.writeValueAsString(data);
-        // Files.writeString(Path.of("echo.json"), json);
     }
    
     static Vec offset = new Vec(-5, -12.5, 0);
