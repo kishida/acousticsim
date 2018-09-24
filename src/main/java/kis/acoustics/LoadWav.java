@@ -52,7 +52,8 @@ public class LoadWav {
             g.setColor(Color.BLACK);
             int len = Math.min((int)(format.getSampleRate() * 10), (int)audioInput.getFrameLength());
             var bytes = new byte[format.getFrameSize()];
-            var freqs = 8;
+            var start = 3;
+            var freqs = start + 6;
             var signals = new short[2][freqs][];
             signals[0][0] = new short[len];
             signals[1][0] = new short[len];
@@ -98,12 +99,11 @@ public class LoadWav {
                                               .map(Math::sqrt)
                                               .toArray())
                              .map(ec -> {
-                                 var max = Arrays.stream(ec).max().orElse(.01);
+                                 var max = 6;//Arrays.stream(ec).max().orElse(.01);
                                  return Arrays.stream(ec).map(d -> d / max).toArray();
                              })
                              .toArray(double[][]::new);
             var delayed = new short[2][freqs][];
-            var start = 2;
             IntStream.range(0, 2).forEach(ch -> {
                 IntStream.range(1, freqs).forEach(f -> {
                     if (f < start) {
@@ -114,28 +114,32 @@ public class LoadWav {
                     delayed[ch][f] = new short[signals[ch][f].length];
                     var devides = 1000;
                     IntStream.range(0, signals[ch][f].length / devides).parallel().forEach(ib -> {
-                        for (int is = 0; is < devides; is++) {
+                        for (int is = 0; is < devides; is += 2) {
                             var i = ib * devides + is;
                             if (i >= signals[ch][f].length) {
                                 break;
                             }
-                            double d1 = 0.;
-                            for (int j = 0; j < echo[5 - f + start].length; j++) {
+                            double[] d = {0,0};
+                            for (int j = 0; j < echo[5 - f + start].length; j += 2) {
                                 if (i - j < 0) {
                                     continue;
                                 }
-                                var s = signals[ch][f][i - j] * echo[5 - f + start][j];
-                                d1 += s;
+                                for (int k = 0; k < 2; ++k) {
+                                    var s = signals[ch][f][i - j + k] * echo[5 - f + start][j];
+                                    d[k] += s;
+                                }
                             }
-                            d1 /= 3.7;
-                            d1 = (d1 + signals[ch][f][i]) / 2;
-                            if (d1 > Short.MAX_VALUE) {
-                                d1 = Short.MAX_VALUE;
+                            for (int k = 0; k < 2; ++k) {
+                                d[k] /= 5;
+                                //d[k] = (d[k] + signals[ch][f][i + k]) / 2;
+                                if (d[k] > Short.MAX_VALUE) {
+                                    d[k] = Short.MAX_VALUE;
+                                }
+                                if (d[k] < Short.MIN_VALUE) {
+                                    d[k] = Short.MIN_VALUE;
+                                }
+                                delayed[ch][f][i + k] = (short) d[k];
                             }
-                            if (d1 < Short.MIN_VALUE) {
-                                d1 = Short.MIN_VALUE;
-                            }
-                            delayed[ch][f][i] = (short) d1;
                         }
                     });
                 });
