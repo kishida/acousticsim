@@ -411,26 +411,37 @@ public class GeoAcoustics {
         var echo = new double[hz.length][];
         var echoLen = 5; // second
         for (int i = 0; i < hz.length; ++i) {
-            echo[i] = new double[hz[i] * echoLen * 2];
+            echo[i] = new double[hz[i] * echoLen];
         }
         var soundSpeed = 340;
         for (var ar : arrivals) {
             for (int i = 0; i < 6; ++i) {
-                var index = (int)(ar.distance / soundSpeed * hz[i] * 2);
+                var index = (int)(ar.distance / soundSpeed * hz[i]);
                 if (index < echo[i].length) {
                     echo[i][index] += ar.intensity[i] * ar.intensity[i];
                 }
             }
         }
+        var echoOut = Arrays.stream(echo)
+                .map(ec -> {
+                    var idx = ec.length - 1;
+                    for (; idx >= 0; idx--) {
+                        if (ec[idx] > 0.01) {
+                            break;
+                        }
+                    }
+                    return Arrays.copyOf(ec, idx + 1);
+                })
+                .toArray(double[][]::new);
         var g2 = graph.createGraphics();
         drawEcho(g2, echo);
         
         Map<String, Object> data = Map.of(
                 "freq", hz,
-                "echo", echo);
+                "echo", echoOut);
         ObjectMapper om = new ObjectMapper();
         String json = om.writeValueAsString(data);
-        // Files.writeString(Path.of("echo.json"), json);
+        Files.writeString(Path.of("echo2.json"), json);
     }
 
     static void drawEcho(Graphics2D g2, double[][] echo) {

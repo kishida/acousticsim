@@ -19,14 +19,15 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.IntStream;
-import javax.sound.sampled.AudioFileFormat;
 import javax.sound.sampled.AudioInputStream;
 import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.Clip;
 import javax.sound.sampled.DataLine;
 import javax.swing.ImageIcon;
+import javax.swing.JButton;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
+import javax.swing.JPanel;
 
 /**
  *
@@ -92,17 +93,20 @@ public class LoadWav {
             System.out.println("wavlet " + (System.currentTimeMillis() - startTime));
             // delay
             var om = new ObjectMapper();
-            var map = om.readValue(new File("echo.json"), Map.class);
+            var map = om.readValue(new File("echo2.json"), Map.class);
             var echoSq = LoadEcho.clipping((List<List<Double>>) map.get("echo"));
-            var echo = Arrays.stream(echoSq)
-                             .map(ec -> Arrays.stream(ec)
-                                              .map(Math::sqrt)
-                                              .toArray())
-                             .map(ec -> {
-                                 var max = 6;//Arrays.stream(ec).max().orElse(.01);
-                                 return Arrays.stream(ec).map(d -> d / max).toArray();
-                             })
-                             .toArray(double[][]::new);
+            var echo = IntStream.range(0, echoSq.length)
+                    .mapToObj(i -> {
+                        var w = 1 << i;
+                        return IntStream.range(0, (echoSq[i].length + w - 1) / w)
+                                .mapToDouble(idx -> 
+                                        IntStream.range(idx * w, Math.min(echoSq[i].length, idx * w + w))
+                                            .mapToDouble(ii -> echoSq[i][ii]).sum())
+                                .map(Math::sqrt)
+                                .toArray();
+                    })
+                    .toArray(double[][]::new);
+
             var delayed = new short[2][freqs][];
             IntStream.range(0, 2).forEach(ch -> {
                 IntStream.range(1, freqs).forEach(f -> {
@@ -119,26 +123,28 @@ public class LoadWav {
                             if (i >= signals[ch][f].length) {
                                 break;
                             }
-                            double[] d = {0,0};
-                            for (int j = 0; j < echo[5 - f + start].length; j += 2) {
-                                if (i - j < 0) {
-                                    continue;
+                            var fi = start + 5 - f;
+                            var w = 1 << fi;
+                            for (int k = 0; k < w; ++k) {
+                                var d = 0.;
+                                for (int j = 0; j < echo[fi].length; j += 1) {
+                                    if (i - j * w + k < 0) {
+                                        break;
+                                    }
+                                    if (i - j * w + k >= signals[ch][f].length) {
+                                        break;
+                                    }
+                                    d += signals[ch][f][i - j * w + k] * echo[fi][j];
                                 }
-                                for (int k = 0; k < 2; ++k) {
-                                    var s = signals[ch][f][i - j + k] * echo[5 - f + start][j];
-                                    d[k] += s;
+                                d /= 25;
+                                if (d > Short.MAX_VALUE) {
+                                    d = Short.MAX_VALUE;
                                 }
-                            }
-                            for (int k = 0; k < 2; ++k) {
-                                d[k] /= 5;
-                                //d[k] = (d[k] + signals[ch][f][i + k]) / 2;
-                                if (d[k] > Short.MAX_VALUE) {
-                                    d[k] = Short.MAX_VALUE;
+                                if (d < Short.MIN_VALUE) {
+                                    d = Short.MIN_VALUE;
                                 }
-                                if (d[k] < Short.MIN_VALUE) {
-                                    d[k] = Short.MIN_VALUE;
-                                }
-                                delayed[ch][f][i + k] = (short) d[k];
+                                var rate = 10;
+                                delayed[ch][f][i + k] = (short)((signals[ch][f][i + k] * (10 - rate) + d * rate) / 10);
                             }
                         }
                     });
@@ -225,6 +231,15 @@ public class LoadWav {
             var f = new JFrame("Graph");
             var lbl = new JLabel(new ImageIcon(image));
             f.add(lbl);
+            
+            var pnl = new JPanel();
+            var btn = new JButton("Play");
+            btn.addActionListener(al -> {
+                clip.setMicrosecondPosition(0);
+                clip.start();
+            });
+            pnl.add(btn);
+            f.add("North", pnl);
             
             var echoGraph = new BufferedImage(600, 300, BufferedImage.TYPE_INT_RGB);
             GeoAcoustics.drawEcho(echoGraph.createGraphics(), echoSq);
